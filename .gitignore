@@ -1,0 +1,36 @@
+# Variables de entorno - NUNCA subir a Git
+.env
+.env.local
+.env.production
+
+# Datos de MySQL
+mysql/data/
+
+# Logs de la aplicación
+logs/
+
+# Backups
+backups/
+
+# Certificados SSL
+nginx/ssl/*.key
+nginx/ssl/*.crt
+nginx/ssl/*.pem
+
+# Archivos temporales de Docker
+.docker/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos de configuración local
+*-local.properties
+*-local.yml
+*-local.yaml

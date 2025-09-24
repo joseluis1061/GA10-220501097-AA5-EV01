@@ -1,0 +1,189 @@
+version: '3.8'
+
+services:
+  # ========================================
+  # SERVICIO DE BASE DE DATOS MYSQL
+  # ========================================
+  mysql:
+    image: mysql:8.0
+    container_name: inventario-mysql
+    restart: unless-stopped
+    
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass123}
+      MYSQL_DATABASE: inventario_tienda
+      MYSQL_USER: ${MYSQL_USER:-inventario}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-inventario123}
+      TZ: America/Bogota
+    
+    ports:
+      - "3307:3306"
+    
+    volumes:
+      # Script de inicialización
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+      # Persistencia de datos
+      - ./mysql/data:/var/lib/mysql
+      # Configuración personalizada de MySQL
+      - ./mysql/conf:/etc/mysql/conf.d:ro
+    
+    networks:
+      - inventario-network
+    
+    # Configuración de salud del contenedor
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass123}"]
+      timeout: 20s
+      retries: 10
+      interval: 30s
+      start_period: 40s
+    
+    # Configuración de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # ========================================
+  # SERVICIO DE LA APLICACIÓN JAVA
+  # ========================================
+  inventario-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+    container_name: inventario-spring-app
+    restart: unless-stopped
+    
+    environment:
+      # Variables de Spring
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/inventario_tienda?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=America/Bogota&allowPublicKeyRetrieval=true
+      
+      # Credenciales de base de datos
+      MYSQL_USER: ${MYSQL_USER:-inventario}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-inventario123}
+      
+      # Credenciales de administrador de la aplicación
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      
+      # JWT Secret
+      JWT_SECRET: ${JWT_SECRET:-mi-clave-secreta-super-segura-para-jwt-inventario-2024-con-64-caracteres-minimo-para-hs512-algoritmo-seguro}
+      
+      # Configuración de zona horaria
+      TZ: America/Bogota
+      
+      # Configuración de Java
+      JAVA_OPTS: "-Xmx512m -Xms256m -Duser.timezone=America/Bogota"
+    
+    ports:
+      - "8080:8080"
+    
+    volumes:
+      # Logs de la aplicación
+      - ./logs:/var/log/inventario
+      # Archivo de configuración adicional (opcional)
+      - ./app/application-docker.properties:/opt/inventario/application-docker.properties:ro
+    
+    networks:
+      - inventario-network
+    
+    # Dependencias - la app espera a que MySQL esté listo
+    depends_on:
+      mysql:
+        condition: service_healthy
+    
+    # Configuración de salud del contenedor
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      timeout: 10s
+      retries: 5
+      interval: 30s
+      start_period: 60s
+    
+    # Configuración de recursos
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # ========================================
+  # SERVICIO DE NGINX (OPCIONAL - PROXY REVERSO)
+  # ========================================
+  nginx:
+    image: nginx:alpine
+    container_name: inventario-nginx
+    restart: unless-stopped
+    
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    
+    networks:
+      - inventario-network
+    
+    depends_on:
+      - inventario-app
+    
+    # Configuración de salud del contenedor
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      timeout: 5s
+      retries: 3
+      interval: 30s
+      start_period: 10s
+
+  # ========================================
+  # SERVICIO DE ADMINER (OPCIONAL - GESTIÓN BD)
+  # ========================================
+  adminer:
+    image: adminer:latest
+    container_name: inventario-adminer
+    restart: unless-stopped
+    
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+      ADMINER_DESIGN: pepa-linha
+    
+    ports:
+      - "8081:8080"
+    
+    networks:
+      - inventario-network
+    
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+# ========================================
+# CONFIGURACIÓN DE REDES
+# ========================================
+networks:
+  inventario-network:
+    driver: bridge
+    name: inventario-network
+
+# ========================================
+# CONFIGURACIÓN DE VOLÚMENES
+# ========================================
+volumes:
+  mysql-data:
+    driver: local
+    name: inventario-mysql-data
+  
+  app-logs:
+    driver: local
+    name: inventario-app-logs
